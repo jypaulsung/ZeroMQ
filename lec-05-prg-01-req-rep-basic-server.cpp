@@ -10,7 +10,7 @@
 #include <unistd.h>
 
 int main() {
-    // Prepare conext and socket
+    // Prepare context and socket
     static const int kNumberofThreads = 2;
     zmq::context_t context(kNumberofThreads);
     zmq::socket_t socket(context, zmq::socket_type::rep);
