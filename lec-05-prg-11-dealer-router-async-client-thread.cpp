@@ -1,5 +1,4 @@
 // Asynchronous Client/Server Pattern
-// Reference: https://zguide.zeromq.org/docs/chapter3/#The-Asynchronous-Client-Server-Pattern
 
 #include <string>
 #include <iostream>
@@ -12,28 +11,13 @@ class ClientTask {
     public:
         ClientTask(const std::string& client_id)
             : client_id_(client_id), context_(1), socket_(context_, zmq::socket_type::dealer) {}
-        
-        void run() {
-            socket_.set(zmq::sockopt::routing_id, client_id_);
-            socket_.set(zmq::sockopt::linger, 0); // Set linger option to 0 to avoid blocking on close
-            socket_.connect("tcp://localhost:5570");
 
-            std::cout << "Client " << client_id_ << " started" << std::endl;
-
+        void recvHandler() {
             zmq::pollitem_t items[] = {
                 { socket_, 0, ZMQ_POLLIN, 0 }
             };
 
-            int reqs = 0;
-
             while (true) {
-                reqs++;
-                std::string request = "request #" + std::to_string(reqs);
-                std::cout << "Req #" << reqs << " sent.." << std::endl;
-                socket_.send(zmq::buffer(request), zmq::send_flags::none);
-
-                std::this_thread::sleep_for(std::chrono::seconds(1));
-
                 zmq::poll(items, 1, std::chrono::milliseconds(1000));
                 if (items[0].revents & ZMQ_POLLIN) {
                     zmq::message_t msg_received;
@@ -42,11 +26,34 @@ class ClientTask {
                     std::cout << client_id_ << " received: " << msg_str << std::endl;
                 }
             }
+        }
+        
+        void run() {
+            socket_.set(zmq::sockopt::routing_id, client_id_);
+            socket_.set(zmq::sockopt::linger, 0); // Set linger option to 0 to avoid blocking on close
+            socket_.connect("tcp://localhost:5570");
+
+            std::cout << "Client " << client_id_ << " started" << std::endl;
+
+            int reqs = 0;
+
+            std::thread recv_thread(&ClientTask::recvHandler, this);
+
+            while (true) {
+                reqs++;
+                std::string request = "request #" + std::to_string(reqs);
+                std::cout << "Req #" << reqs << " sent.." << std::endl;
+                socket_.send(zmq::buffer(request), zmq::send_flags::none);
+
+                std::this_thread::sleep_for(std::chrono::seconds(1));
+            }
 
             // Clean up
             socket_.close();
             context_.shutdown();
             context_.close();
+
+            recv_thread.join(); // Wait for the receiving thread to finish
         }
 
     private:
@@ -56,13 +63,16 @@ class ClientTask {
 };
 
 int main(int argc, char* argv[]) {
-    if (argc >1) {
+    if (argc > 1) {
         std::string client_id = argv[1];
         ClientTask client(client_id);
-        
+
         std::thread client_thread(&ClientTask::run, &client);
 
         client_thread.join(); // Wait for the thread to finish
+
+        // Note: In a real application, you might want to handle thread termination gracefully.
+        // For this example, we will just let it run indefinitely.
     }
     else {
         std::cerr << "Usage: " << argv[0] << " <client_id>" << std::endl;
